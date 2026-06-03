@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama3-70b-8192"  # Стабильная бесплатная модель Groq
+MODEL = "llama-3.3-70b-versatile"  # Стабильная бесплатная модель Groq
 
 ADMIN_SYSTEM = """Ты — умный AI-менеджер компании по мойке ковров «КовёрМастер».
 
