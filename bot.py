@@ -522,13 +522,12 @@ async def ai_respond_client(update, context, text: str):
 # ЗАПУСК БОТА
 # ─────────────────────────────────────────────
 
-async def post_init(application):
+async def main():
+    # Инициализируем базу данных ПЕРВЫМ делом
     await db.init()
     logger.info("✅ База данных инициализирована")
 
-
-async def main():
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    app = Application.builder().token(BOT_TOKEN).build()
 
     # Команды
     app.add_handler(CommandHandler("start", cmd_start))
