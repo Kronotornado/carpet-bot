@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama-3.1-70b-versatile"  # Бесплатная мощная модель
+MODEL = "llama3-70b-8192"  # Стабильная бесплатная модель Groq
 
 ADMIN_SYSTEM = """Ты — умный AI-менеджер компании по мойке ковров «КовёрМастер».
 
@@ -72,11 +72,15 @@ async def _groq_request(system: str, user_message: str, max_tokens: int = 600) -
             data = resp.json()
             return data["choices"][0]["message"]["content"]
     except httpx.HTTPStatusError as e:
-        logger.error(f"Groq HTTP ошибка {e.response.status_code}: {e.response.text}")
-        return "⚠️ Ошибка AI. Проверьте GROQ_API_KEY."
+        err_body = e.response.text[:200]
+        logger.error(f"Groq HTTP {e.response.status_code}: {err_body}")
+        return f"⚠️ Groq ошибка {e.response.status_code}: {err_body}"
+    except httpx.TimeoutException:
+        logger.error("Groq timeout")
+        return "⚠️ AI не ответил за 20 секунд. Попробуйте ещё раз."
     except Exception as e:
-        logger.error(f"Groq ошибка: {e}")
-        return "⚠️ AI временно недоступен."
+        logger.error(f"Groq неизвестная ошибка: {type(e).__name__}: {e}")
+        return f"⚠️ Ошибка: {type(e).__name__}: {str(e)[:100]}"
 
 
 class AIManager:
