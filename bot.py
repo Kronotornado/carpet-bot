@@ -1,13 +1,10 @@
 """
 КовёрМастер — AI-бот для управления бизнесом по мойке ковров
-Автор: КовёрМастер Team
 """
 
 import logging
 import asyncio
-from telegram import (
-    Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
-)
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
@@ -17,7 +14,6 @@ from config import BOT_TOKEN, ADMIN_IDS
 from database import Database
 from ai_manager import AIManager
 
-# Логи
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -27,56 +23,16 @@ logger = logging.getLogger(__name__)
 db = Database()
 ai = AIManager()
 
-
 # ─────────────────────────────────────────────
-# КЛАВИАТУРЫ
+# РОЛИ И СТАТУСЫ
 # ─────────────────────────────────────────────
 
-def main_menu_keyboard():
-    return ReplyKeyboardMarkup([
-        ["📋 Заказы", "➕ Новая заявка"],
-        ["📊 Статистика", "👥 Клиенты"],
-        ["🚗 Водители", "💬 Спросить AI"],
-    ], resize_keyboard=True)
-
-
-def orders_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🆕 Новые", callback_data="orders_new"),
-         InlineKeyboardButton("🧹 В чистке", callback_data="orders_cleaning")],
-        [InlineKeyboardButton("✅ Готовые", callback_data="orders_ready"),
-         InlineKeyboardButton("📦 Все активные", callback_data="orders_all")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="back_main")],
-    ])
-
-
-def order_action_keyboard(order_id: int, status: str):
-    buttons = []
-
-    status_flow = {
-        "новый":             ("забрали",           "🚗 Отметить «Забрали»"),
-        "забрали":           ("в чистке",          "🧹 Отметить «В чистке»"),
-        "в чистке":          ("готов к доставке",  "✅ Отметить «Готов»"),
-        "готов к доставке":  ("доставлен",         "📦 Отметить «Доставлен»"),
-    }
-
-    if status in status_flow:
-        next_status, label = status_flow[status]
-        buttons.append([InlineKeyboardButton(
-            label, callback_data=f"status_{order_id}_{next_status}"
-        )])
-
-    buttons.append([
-        InlineKeyboardButton("📞 Позвонить клиенту", callback_data=f"call_{order_id}"),
-        InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_{order_id}"),
-    ])
-    buttons.append([InlineKeyboardButton("🔙 К заказам", callback_data="orders_all")])
-    return InlineKeyboardMarkup(buttons)
-
-
-# ─────────────────────────────────────────────
-# ХЕЛПЕРЫ
-# ─────────────────────────────────────────────
+ROLE_LABELS = {
+    "driver":  "🚗 Водитель",
+    "cleaner": "🧹 Мойщик",
+    "manager": "📋 Менеджер",
+    "admin":   "⚙️ Администратор",
+}
 
 STATUS_EMOJI = {
     "новый":            "🆕",
@@ -87,6 +43,64 @@ STATUS_EMOJI = {
     "отменён":          "❌",
 }
 
+STATUS_MESSAGES = {
+    "забрали":          "✅ Ваш ковёр забрали. Начинаем чистку!",
+    "в чистке":         "🧹 Ваш ковёр сейчас в чистке. Срок: 1-2 дня.",
+    "готов к доставке": "🎉 Ваш ковёр готов и скоро будет доставлен!",
+    "доставлен":        "📦 Ваш ковёр доставлен! Спасибо за доверие 🙏",
+}
+
+# ─────────────────────────────────────────────
+# КЛАВИАТУРЫ
+# ─────────────────────────────────────────────
+
+def main_menu_keyboard():
+    return ReplyKeyboardMarkup([
+        ["📋 Заказы", "➕ Новая заявка"],
+        ["📊 Статистика", "👥 Клиенты"],
+        ["👨‍💼 Сотрудники", "💬 Спросить AI"],
+    ], resize_keyboard=True)
+
+
+def orders_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🆕 Новые", callback_data="orders_new"),
+         InlineKeyboardButton("🧹 В чистке", callback_data="orders_cleaning")],
+        [InlineKeyboardButton("✅ Готовые", callback_data="orders_ready"),
+         InlineKeyboardButton("📦 Все активные", callback_data="orders_all")],
+    ])
+
+
+def order_action_keyboard(order_id: int, status: str):
+    buttons = []
+    status_flow = {
+        "новый":            ("забрали",          "🚗 Отметить «Забрали»"),
+        "забрали":          ("в чистке",         "🧹 Отметить «В чистке»"),
+        "в чистке":         ("готов к доставке", "✅ Отметить «Готов»"),
+        "готов к доставке": ("доставлен",        "📦 Отметить «Доставлен»"),
+    }
+    if status in status_flow:
+        next_s, label = status_flow[status]
+        buttons.append([InlineKeyboardButton(label, callback_data=f"status_{order_id}_{next_s}")])
+    buttons.append([
+        InlineKeyboardButton("📞 Телефон клиента", callback_data=f"call_{order_id}"),
+        InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_{order_id}"),
+    ])
+    buttons.append([InlineKeyboardButton("🔙 К заказам", callback_data="orders_all")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def employees_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Список сотрудников", callback_data="emp_list")],
+        [InlineKeyboardButton("➕ Добавить сотрудника", callback_data="emp_add")],
+        [InlineKeyboardButton("📊 Статистика", callback_data="emp_stats_select")],
+    ])
+
+# ─────────────────────────────────────────────
+# ХЕЛПЕРЫ
+# ─────────────────────────────────────────────
+
 def format_order(order: dict) -> str:
     emoji = STATUS_EMOJI.get(order["status"], "📋")
     lines = [
@@ -95,9 +109,8 @@ def format_order(order: dict) -> str:
         f"📞 {order['client_phone']}",
         f"📍 {order['address']}",
         f"🏠 Ковров: {order['rugs_count']} шт · {order['total_area']} м²",
-        f"💰 Сумма: {int(order['price']):,} ₽",
+        f"💰 Сумма: {int(order['price']):,} сом",
         f"📅 Забор: {order['pickup_date'] or 'не назначен'}",
-        f"📅 Доставка: {order['delivery_date'] or 'не назначена'}",
         f"🔄 Статус: *{order['status']}*",
     ]
     if order.get("notes"):
@@ -109,85 +122,77 @@ async def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
+async def notify_client_status(context, order: dict, new_status: str):
+    message = STATUS_MESSAGES.get(new_status)
+    if message and order.get("telegram_id"):
+        try:
+            await context.bot.send_message(
+                chat_id=order["telegram_id"],
+                text=f"*Заказ #{order['id']}*\n\n{message}",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось уведомить клиента: {e}")
+
 # ─────────────────────────────────────────────
 # КОМАНДЫ
 # ─────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    uid = user.id
+    await db.ensure_user(user.id, user.full_name, user.username)
 
-    await db.ensure_user(uid, user.full_name, user.username)
-
-    if await is_admin(uid):
+    if await is_admin(user.id):
         text = (
             f"👋 Добро пожаловать, *{user.first_name}*!\n\n"
             "🏠 *КовёрМастер — AI-менеджер*\n\n"
-            "Я помогу вам:\n"
-            "• Принимать и отслеживать заказы\n"
-            "• Управлять водителями\n"
-            "• Получать аналитику\n"
-            "• Уведомлять клиентов\n\n"
             "Выберите действие ниже 👇"
         )
-        await update.message.reply_text(
-            text, parse_mode="Markdown",
-            reply_markup=main_menu_keyboard()
-        )
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_menu_keyboard())
     else:
-        # Клиент
         text = (
             f"👋 Здравствуйте, *{user.first_name}*!\n\n"
             "🏠 *КовёрМастер* — профессиональная чистка ковров\n"
             "с бесплатным забором и доставкой!\n\n"
-            "Используйте /order чтобы оставить заявку\n"
-            "Используйте /status чтобы проверить статус\n"
-            "Используйте /price для расчёта стоимости"
+            "/order — оставить заявку\n"
+            "/status — статус заказа\n"
+            "/price — расчёт стоимости"
         )
         await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def cmd_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Клиент оставляет заявку"""
     context.user_data["state"] = "waiting_address"
     await update.message.reply_text(
-        "📍 Напишите ваш *адрес* для забора ковра\n"
-        "_(улица, дом, квартира)_",
+        "📍 Напишите ваш *адрес* для забора ковра:",
         parse_mode="Markdown"
     )
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Клиент проверяет статус своих заказов"""
-    uid = update.effective_user.id
-    orders = await db.get_client_orders(uid)
+    orders = await db.get_client_orders(update.effective_user.id)
     if not orders:
         await update.message.reply_text("У вас нет активных заказов.")
         return
     for order in orders:
         emoji = STATUS_EMOJI.get(order["status"], "📋")
-        text = (
-            f"Заказ *#{order['id']}* {emoji}\n"
-            f"Статус: *{order['status']}*\n"
-            f"Сумма: {int(order['price']):,} ₽"
+        await update.message.reply_text(
+            f"Заказ *#{order['id']}* {emoji}\nСтатус: *{order['status']}*\nСумма: {int(order['price']):,} сом",
+            parse_mode="Markdown"
         )
-        await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def cmd_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Расчёт стоимости"""
     await update.message.reply_text(
         "💰 *Расчёт стоимости*\n\n"
-        "Базовая цена: *300 ₽/м²*\n"
-        "Минимальный заказ: *500 ₽*\n"
-        "Забор и доставка: *бесплатно*\n\n"
-        "Напишите площадь ковра (например: _6_) чтобы рассчитать.",
+        "Базовая цена: *300 сом/м²*\n"
+        "Минимальный заказ: *500 сом*\n"
+        "Забор и доставка: *бесплатно*",
         parse_mode="Markdown"
     )
 
-
 # ─────────────────────────────────────────────
-# ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ (МЕНЮ)
+# ОБРАБОТКА ТЕКСТА
 # ─────────────────────────────────────────────
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,49 +200,53 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     state = context.user_data.get("state", "")
 
-    # ── Обработка пошаговых диалогов ──
+    if text == "/stop":
+        context.user_data.clear()
+        await update.message.reply_text("Главное меню.", reply_markup=main_menu_keyboard())
+        return
+
     if state:
         await handle_state(update, context, state, text)
         return
 
-    # ── Меню для администратора ──
     if await is_admin(uid):
         if text == "📋 Заказы":
-            await show_orders_menu(update, context)
+            await update.message.reply_text(
+                "📋 *Управление заказами*\nВыберите фильтр:",
+                parse_mode="Markdown",
+                reply_markup=orders_keyboard()
+            )
         elif text == "➕ Новая заявка":
-            await start_new_order(update, context)
+            context.user_data["state"] = "waiting_address"
+            context.user_data["order_data"] = {}
+            await update.message.reply_text("📍 Введите адрес клиента:", parse_mode="Markdown")
         elif text == "📊 Статистика":
             await show_stats(update, context)
         elif text == "👥 Клиенты":
             await show_clients(update, context)
-        elif text == "🚗 Водители":
-            await show_drivers(update, context)
+        elif text == "👨‍💼 Сотрудники":
+            await update.message.reply_text(
+                "👨‍💼 *Управление сотрудниками*",
+                parse_mode="Markdown",
+                reply_markup=employees_keyboard()
+            )
         elif text == "💬 Спросить AI":
             context.user_data["state"] = "ai_chat"
             await update.message.reply_text(
-                "🤖 Режим AI-консультанта активирован.\n"
-                "Задайте любой вопрос по бизнесу.\n\n"
-                "Напишите /stop чтобы выйти."
+                "🤖 Режим AI активирован. Задайте любой вопрос.\nНапишите /stop чтобы выйти."
             )
         else:
-            # Свободный ввод — AI отвечает
             await ai_respond(update, context, text)
     else:
-        # Клиент — передаём AI
         await ai_respond_client(update, context, text)
 
 
 async def handle_state(update, context, state, text):
-    """Пошаговый диалог создания заявки"""
     uid = update.effective_user.id
-
-    if text == "/stop":
-        context.user_data.clear()
-        await update.message.reply_text("✅ Выход из режима. Главное меню.", reply_markup=main_menu_keyboard())
-        return
-
     order_data = context.user_data.get("order_data", {})
+    emp_data = context.user_data.get("emp_data", {})
 
+    # ── Заказ ──
     if state == "waiting_address":
         order_data["address"] = text
         context.user_data["order_data"] = order_data
@@ -264,7 +273,7 @@ async def handle_state(update, context, state, text):
             return
         context.user_data["order_data"] = order_data
         context.user_data["state"] = "waiting_area"
-        await update.message.reply_text("📐 Общая *площадь ковров* (м²)?\nПример: 8.5", parse_mode="Markdown")
+        await update.message.reply_text("📐 Общая *площадь ковров* (м²)? Пример: 8.5", parse_mode="Markdown")
 
     elif state == "waiting_area":
         try:
@@ -277,8 +286,7 @@ async def handle_state(update, context, state, text):
         context.user_data["order_data"] = order_data
         context.user_data["state"] = "waiting_date"
         await update.message.reply_text(
-            f"📅 На какую дату назначить *забор*?\n"
-            f"_(Формат: ДД.ММ.ГГГГ, или напишите «сегодня», «завтра»)_",
+            "📅 На какую дату назначить *забор*?\n_(Формат: ДД.ММ.ГГГГ или «сегодня», «завтра»)_",
             parse_mode="Markdown"
         )
 
@@ -286,32 +294,24 @@ async def handle_state(update, context, state, text):
         order_data["pickup_date"] = text
         context.user_data["order_data"] = order_data
         context.user_data["state"] = "waiting_notes"
-        await update.message.reply_text(
-            "📝 Есть особые пожелания? (или напишите «нет»)"
-        )
+        await update.message.reply_text("📝 Есть особые пожелания? (или напишите «нет»)")
 
     elif state == "waiting_notes":
         order_data["notes"] = "" if text.lower() == "нет" else text
         context.user_data.clear()
 
-        # Сохраняем заказ в БД
         order_id = await db.create_order(uid, order_data)
-
-        text_confirm = (
+        await update.message.reply_text(
             f"✅ *Заявка #{order_id} создана!*\n\n"
             f"👤 {order_data['client_name']}\n"
             f"📞 {order_data['client_phone']}\n"
             f"📍 {order_data['address']}\n"
             f"🏠 {order_data['rugs_count']} ковр · {order_data['total_area']} м²\n"
-            f"💰 Сумма: *{int(order_data['price']):,} ₽*\n"
-            f"📅 Забор: {order_data['pickup_date']}"
-        )
-        await update.message.reply_text(
-            text_confirm, parse_mode="Markdown",
+            f"💰 Сумма: *{int(order_data['price']):,} сом*\n"
+            f"📅 Забор: {order_data['pickup_date']}",
+            parse_mode="Markdown",
             reply_markup=main_menu_keyboard()
         )
-
-        # Назначаем водителя автоматически
         driver = await db.get_free_driver()
         if driver:
             await db.assign_driver(order_id, driver["id"])
@@ -320,49 +320,68 @@ async def handle_state(update, context, state, text):
                 parse_mode="Markdown"
             )
 
+    # ── Сотрудник ──
+    elif state == "emp_waiting_name":
+        emp_data["name"] = text
+        context.user_data["emp_data"] = emp_data
+        context.user_data["state"] = "emp_waiting_phone"
+        await update.message.reply_text("📞 Введите номер телефона сотрудника:")
+
+    elif state == "emp_waiting_phone":
+        emp_data["phone"] = text
+        context.user_data["emp_data"] = emp_data
+        context.user_data["state"] = "emp_waiting_role"
+        await update.message.reply_text(
+            "👔 Выберите должность — напишите цифру:\n\n"
+            "1 — 🚗 Водитель\n"
+            "2 — 🧹 Мойщик\n"
+            "3 — 📋 Менеджер\n"
+            "4 — ⚙️ Администратор"
+        )
+
+    elif state == "emp_waiting_role":
+        role_map = {"1": "driver", "2": "cleaner", "3": "manager", "4": "admin"}
+        role = role_map.get(text.strip(), "driver")
+        emp_data["role"] = role
+        context.user_data.clear()
+
+        await db.add_employee(emp_data["name"], emp_data["phone"], role)
+        role_label = ROLE_LABELS.get(role, "👤")
+        await update.message.reply_text(
+            f"✅ *Сотрудник добавлен!*\n\n"
+            f"👤 {emp_data['name']}\n"
+            f"📞 {emp_data['phone']}\n"
+            f"{role_label}",
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard()
+        )
+
+    # ── AI чат ──
     elif state == "ai_chat":
         await ai_respond(update, context, text)
 
-
 # ─────────────────────────────────────────────
-# ФУНКЦИИ МЕНЮ
+# СТАТИСТИКА / КЛИЕНТЫ
 # ─────────────────────────────────────────────
-
-async def show_orders_menu(update, context):
-    await update.message.reply_text(
-        "📋 *Управление заказами*\nВыберите фильтр:",
-        parse_mode="Markdown",
-        reply_markup=orders_keyboard()
-    )
-
-
-async def start_new_order(update, context):
-    context.user_data["state"] = "waiting_address"
-    context.user_data["order_data"] = {}
-    await update.message.reply_text(
-        "➕ *Новая заявка*\n\n📍 Введите адрес клиента:",
-        parse_mode="Markdown"
-    )
-
 
 async def show_stats(update, context):
     stats = await db.get_stats()
-    text = (
+    await update.message.reply_text(
         "📊 *Статистика бизнеса*\n\n"
         f"📅 *Сегодня:*\n"
         f"  Новых заявок: {stats['today_orders']}\n"
-        f"  Выручка: {stats['today_revenue']:,} ₽\n\n"
+        f"  Выручка: {stats['today_revenue']:,} сом\n\n"
         f"📅 *Месяц:*\n"
         f"  Заказов: {stats['month_orders']}\n"
-        f"  Выручка: {stats['month_revenue']:,} ₽\n\n"
+        f"  Выручка: {stats['month_revenue']:,} сом\n\n"
         f"📦 *Активные заказы:*\n"
         f"  🆕 Новых: {stats['status_new']}\n"
         f"  🚗 Забрали: {stats['status_picked']}\n"
         f"  🧹 В чистке: {stats['status_cleaning']}\n"
-        f"  ✅ Готовы к доставке: {stats['status_ready']}\n\n"
-        f"👥 Всего клиентов: {stats['total_clients']}"
+        f"  ✅ Готовы: {stats['status_ready']}\n\n"
+        f"👥 Всего клиентов: {stats['total_clients']}",
+        parse_mode="Markdown"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def show_clients(update, context):
@@ -375,21 +394,8 @@ async def show_clients(update, context):
         lines.append(f"• {c['name']} — {c['phone']} ({c['orders_count']} заказов)")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
-
-async def show_drivers(update, context):
-    drivers = await db.get_drivers()
-    if not drivers:
-        await update.message.reply_text("Водители не добавлены.")
-        return
-    lines = ["🚗 *Водители:*\n"]
-    for d in drivers:
-        status = "🟢 Свободен" if d["is_free"] else f"🔴 В маршруте ({d['active_orders']} заказов)"
-        lines.append(f"• {d['name']} — {status}")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-
-
 # ─────────────────────────────────────────────
-# CALLBACK КНОПКИ (INLINE)
+# CALLBACK КНОПКИ
 # ─────────────────────────────────────────────
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -397,7 +403,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
 
-    # Фильтрация заказов
+    # ── Заказы ──
     if data.startswith("orders_"):
         filter_map = {
             "orders_new":      "новый",
@@ -405,24 +411,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "orders_ready":    "готов к доставке",
             "orders_all":      None,
         }
-        status_filter = filter_map.get(data)
-        orders = await db.get_orders(status_filter)
+        orders = await db.get_orders(filter_map.get(data))
         if not orders:
             await query.edit_message_text("Заказов не найдено.", reply_markup=orders_keyboard())
             return
-
         buttons = []
         for o in orders[:15]:
             emoji = STATUS_EMOJI.get(o["status"], "📋")
             label = f"{emoji} #{o['id']} — {o['client_name']} ({o['rugs_count']} ковр.)"
             buttons.append([InlineKeyboardButton(label, callback_data=f"order_{o['id']}")])
-        buttons.append([InlineKeyboardButton("🔙 Назад", callback_data="back_main")])
         await query.edit_message_text(
             f"📋 Заказов: {len(orders)}",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-    # Детали заказа
     elif data.startswith("order_"):
         order_id = int(data.split("_")[1])
         order = await db.get_order(order_id)
@@ -435,110 +437,138 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=order_action_keyboard(order_id, order["status"])
         )
 
-    # Смена статуса
     elif data.startswith("status_"):
         parts = data.split("_", 2)
         order_id = int(parts[1])
         new_status = parts[2]
         await db.update_order_status(order_id, new_status)
-
         order = await db.get_order(order_id)
-        emoji = STATUS_EMOJI.get(new_status, "✅")
         await query.edit_message_text(
-            f"{emoji} Статус заказа *#{order_id}* изменён на *{new_status}*\n\n"
+            f"{STATUS_EMOJI.get(new_status, '✅')} Статус заказа *#{order_id}* → *{new_status}*\n\n"
             + format_order(order),
             parse_mode="Markdown",
             reply_markup=order_action_keyboard(order_id, new_status)
         )
-
-        # Уведомляем клиента
         await notify_client_status(context, order, new_status)
 
-    # Отмена заказа
     elif data.startswith("cancel_"):
         order_id = int(data.split("_")[1])
         await db.update_order_status(order_id, "отменён")
-        await query.edit_message_text(
-            f"❌ Заказ #{order_id} отменён.",
-            reply_markup=orders_keyboard()
-        )
+        await query.edit_message_text(f"❌ Заказ #{order_id} отменён.", reply_markup=orders_keyboard())
 
-    # Контакт клиента
     elif data.startswith("call_"):
         order_id = int(data.split("_")[1])
         order = await db.get_order(order_id)
         await query.answer(f"Телефон: {order['client_phone']}", show_alert=True)
 
-    elif data == "back_main":
-        await query.edit_message_text("Главное меню", reply_markup=orders_keyboard())
-
-
-# ─────────────────────────────────────────────
-# УВЕДОМЛЕНИЯ КЛИЕНТАМ
-# ─────────────────────────────────────────────
-
-STATUS_MESSAGES = {
-    "забрали":          "✅ Ваш ковёр забрали. Начинаем чистку! Ждите уведомления.",
-    "в чистке":         "🧹 Ваш ковёр сейчас в чистке. Срок: 1-2 дня.",
-    "готов к доставке": "🎉 Ваш ковёр готов и скоро будет доставлен!",
-    "доставлен":        "📦 Ваш ковёр доставлен! Спасибо за доверие 🙏\n\nОставьте отзыв: /review",
-}
-
-async def notify_client_status(context, order: dict, new_status: str):
-    message = STATUS_MESSAGES.get(new_status)
-    if message and order.get("telegram_id"):
-        try:
-            await context.bot.send_message(
-                chat_id=order["telegram_id"],
-                text=f"*Заказ #{order['id']}*\n\n{message}",
-                parse_mode="Markdown"
+    # ── Сотрудники ──
+    elif data == "emp_list":
+        employees = await db.get_employees()
+        if not employees:
+            await query.edit_message_text(
+                "Сотрудников пока нет. Добавьте первого!",
+                reply_markup=employees_keyboard()
             )
-        except Exception as e:
-            logger.warning(f"Не удалось уведомить клиента: {e}")
+            return
+        buttons = []
+        for e in employees:
+            role = ROLE_LABELS.get(e.get("role", "driver"), "👤")
+            active = e.get("active_orders", 0)
+            buttons.append([InlineKeyboardButton(
+                f"{role} {e['name']} ({active} заказ.)",
+                callback_data=f"emp_view_{e['id']}"
+            )])
+        buttons.append([InlineKeyboardButton("➕ Добавить", callback_data="emp_add")])
+        await query.edit_message_text(
+            f"👨‍💼 *Сотрудников: {len(employees)}*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
 
+    elif data.startswith("emp_view_"):
+        emp_id = int(data.split("_")[2])
+        emp = await db.get_employee(emp_id)
+        stats = await db.get_employee_stats(emp_id)
+        role = ROLE_LABELS.get(emp.get("role", "driver"), "👤")
+        await query.edit_message_text(
+            f"{role} *{emp['name']}*\n"
+            f"📞 {emp.get('phone', 'не указан')}\n\n"
+            f"📊 *Статистика за месяц:*\n"
+            f"  Заказов: {stats['month']}\n"
+            f"  Выручка: {stats['revenue']:,} сом\n"
+            f"  Активных: {stats['active']}\n"
+            f"  Всего за всё время: {stats['total']}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Уволить", callback_data=f"emp_fire_{emp_id}")],
+                [InlineKeyboardButton("🔙 К списку", callback_data="emp_list")],
+            ])
+        )
+
+    elif data.startswith("emp_fire_"):
+        emp_id = int(data.split("_")[2])
+        emp = await db.get_employee(emp_id)
+        await db.fire_employee(emp_id)
+        await query.edit_message_text(
+            f"❌ Сотрудник *{emp['name']}* удалён.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 К списку", callback_data="emp_list")]
+            ])
+        )
+
+    elif data == "emp_add":
+        context.user_data["state"] = "emp_waiting_name"
+        context.user_data["emp_data"] = {}
+        await query.edit_message_text("➕ *Добавление сотрудника*\n\n👤 Введите имя:", parse_mode="Markdown")
+
+    elif data == "emp_stats_select":
+        employees = await db.get_employees()
+        if not employees:
+            await query.answer("Сотрудников нет", show_alert=True)
+            return
+        buttons = [[InlineKeyboardButton(e["name"], callback_data=f"emp_view_{e['id']}")] for e in employees]
+        buttons.append([InlineKeyboardButton("🔙 Назад", callback_data="emp_back")])
+        await query.edit_message_text("Выберите сотрудника:", reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif data == "emp_back":
+        await query.edit_message_text(
+            "👨‍💼 *Управление сотрудниками*",
+            parse_mode="Markdown",
+            reply_markup=employees_keyboard()
+        )
 
 # ─────────────────────────────────────────────
 # AI ОТВЕТЫ
 # ─────────────────────────────────────────────
 
 async def ai_respond(update, context, text: str):
-    """AI отвечает администратору с доступом к данным"""
     stats = await db.get_stats()
     orders = await db.get_orders(None, limit=20)
-
     await update.message.reply_text("⏳ Думаю...")
-
     response = await ai.answer_admin(text, stats, orders)
     await update.message.reply_text(response, parse_mode="Markdown")
 
 
 async def ai_respond_client(update, context, text: str):
-    """AI отвечает клиенту"""
     response = await ai.answer_client(text)
     await update.message.reply_text(response, parse_mode="Markdown")
 
-
 # ─────────────────────────────────────────────
-# ЗАПУСК БОТА
+# ЗАПУСК
 # ─────────────────────────────────────────────
 
 async def main():
-    # Инициализируем базу данных ПЕРВЫМ делом
     await db.init()
     logger.info("✅ База данных инициализирована")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Команды
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("order", cmd_order))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("price", cmd_price))
-
-    # Сообщения
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    # Кнопки
     app.add_handler(CallbackQueryHandler(handle_callback))
 
     logger.info("🚀 КовёрМастер бот запущен!")
@@ -546,7 +576,6 @@ async def main():
     async with app:
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
-        # Ждём бесконечно пока не нажмут Ctrl+C
         await asyncio.Event().wait()
         await app.updater.stop()
         await app.stop()

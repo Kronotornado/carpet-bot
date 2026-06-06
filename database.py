@@ -267,3 +267,69 @@ class Database:
             "status_cleaning": status_cleaning,
             "status_ready":    status_ready,
         }
+
+    # ─── СОТРУДНИКИ ───
+
+    async def add_employee(self, name: str, phone: str, role: str, telegram_id: int = None) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            # Добавляем колонки если их нет (миграция)
+            try:
+                await db.execute("ALTER TABLE drivers ADD COLUMN role TEXT DEFAULT 'driver'")
+                await db.commit()
+            except Exception:
+                pass
+            cursor = await db.execute(
+                "INSERT INTO drivers (name, phone, telegram_id, role) VALUES (?, ?, ?, ?)",
+                (name, phone, telegram_id, role)
+            )
+            await db.commit()
+            return cursor.lastrowid
+
+    async def get_employees(self) -> List[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT
+                    d.*,
+                    COALESCE(d.role, 'driver') as role,
+                    COUNT(o.id) as active_orders
+                FROM drivers d
+                LEFT JOIN orders o
+                    ON o.driver_id = d.id
+                    AND o.status NOT IN ('доставлен', 'отменён')
+                WHERE d.is_active = 1
+                GROUP BY d.id
+                ORDER BY d.name
+            """)
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    async def fire_employee(self, emp_id: int):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE drivers SET is_active = 0 WHERE id = ?", (emp_id,)
+            )
+            await db.commit()
+
+    async def get_employee(self, emp_id: int) -> Optional[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT *, COALESCE(role,'driver') as role FROM drivers WHERE id = ?", (emp_id,)
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+    async def get_employee_stats(self, emp_id: int) -> Dict:
+        month_start = date.today().replace(day=1).isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            async def one(sql, p=()):
+                cur = await db.execute(sql, p)
+                r = await cur.fetchone()
+                return r[0] if r else 0
+
+            total    = await one("SELECT COUNT(*) FROM orders WHERE driver_id=?", (emp_id,))
+            month    = await one("SELECT COUNT(*) FROM orders WHERE driver_id=? AND DATE(created_at)>=?", (emp_id, month_start))
+            active   = await one("SELECT COUNT(*) FROM orders WHERE driver_id=? AND status NOT IN ('доставлен','отменён')", (emp_id,))
+            revenue  = await one("SELECT COALESCE(SUM(price),0) FROM orders WHERE driver_id=? AND DATE(created_at)>=?", (emp_id, month_start))
+        return {"total": total, "month": month, "active": active, "revenue": int(revenue)}
